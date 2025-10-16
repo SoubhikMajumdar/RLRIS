@@ -19,7 +19,7 @@ from deep_q_network import DQN, DQNTrainer, RISDataset
 np.random.seed(42)
 torch.manual_seed(42)
 
-def load_trained_model(model_path='dqn_model.pth', state_dim=6, n_actions=256):
+def load_trained_model(model_path='dqn_model.pth', state_dim=4, n_actions=64):
     """Load the trained DQN model"""
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
@@ -45,8 +45,9 @@ def test_model_performance(trainer, env, n_episodes=5, n_steps=100):
         episode_sinr = []
         
         for step in range(n_steps):
-            # Get action from trained model
+            # Get action from trained model (pure greedy policy for testing)
             with torch.no_grad():
+                trainer.q_net.eval()  # Set to eval mode for BatchNorm
                 state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
                 q_values = trainer.q_net(state_tensor)
                 action = q_values.argmax().item()
@@ -134,7 +135,7 @@ def plot_performance_comparison(dqn_rewards, dqn_sinrs, random_rewards, random_s
     plt.show()
     print("Performance comparison plot saved as 'performance_comparison.png'")
 
-def analyze_action_distribution(action_distribution, n_actions=256):
+def analyze_action_distribution(action_distribution, n_actions=64):
     """Analyze and visualize action distribution"""
     print(f"\nAction Distribution Analysis:")
     print(f"Total unique actions used: {len(action_distribution)}")
@@ -179,6 +180,7 @@ def test_single_episode_detailed(trainer, env):
     for step in range(50):  # Shorter episode for detailed analysis
         # Get Q-values for current state
         with torch.no_grad():
+            trainer.q_net.eval()  # Set to eval mode for BatchNorm
             state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
             q_values = trainer.q_net(state_tensor).squeeze().numpy()
         
@@ -240,6 +242,78 @@ def test_single_episode_detailed(trainer, env):
     plt.show()
     print("Episode analysis plot saved as 'episode_analysis.png'")
 
+def plot_exploration_analysis(trainer, env):
+    """Analyze and plot exploration behavior"""
+    print("Analyzing DQN exploration...")
+    
+    # Collect Q-values and actions over multiple episodes
+    all_q_values = []
+    action_selections = []
+    q_spreads = []
+    
+    for episode in range(5):
+        state = env.reset()
+        for step in range(50):
+            with torch.no_grad():
+                trainer.q_net.eval()
+                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                q_values = trainer.q_net(state_tensor).squeeze().cpu().numpy()
+            
+            all_q_values.append(q_values)
+            action = q_values.argmax()
+            action_selections.append(action)
+            q_spreads.append(q_values.max() - q_values.min())
+            
+            next_state, _, _, _ = env.step(action)
+            state = next_state
+    
+    all_q_values = np.array(all_q_values)
+    action_selections = np.array(action_selections)
+    
+    # Create exploration plots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
+    
+    # 1. Action selection over time
+    ax1.plot(action_selections, 'b-', linewidth=1.5, alpha=0.7)
+    ax1.set_xlabel('Step', fontsize=12)
+    ax1.set_ylabel('Action', fontsize=12)
+    ax1.set_title('Action Selection Over Time\n(shows if DQN adapts)', fontsize=13, fontweight='bold')
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(-1, env.cb.size())
+    
+    # 2. Q-value spread (confidence)
+    ax2.plot(q_spreads, 'r-', linewidth=1.5, alpha=0.7)
+    ax2.set_xlabel('Step', fontsize=12)
+    ax2.set_ylabel('Max Q - Min Q', fontsize=12)
+    ax2.set_title('Decision Confidence Over Time\n(higher = more certain)', fontsize=13, fontweight='bold')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Mean Q-value per action
+    mean_q = all_q_values.mean(axis=0)
+    ax3.bar(range(env.cb.size()), mean_q, alpha=0.7, color='lightgreen', edgecolor='darkgreen')
+    ax3.set_xlabel('Action', fontsize=12)
+    ax3.set_ylabel('Mean Q-Value', fontsize=12)
+    ax3.set_title('Average Q-Value per Action\n(which actions DQN prefers)', fontsize=13, fontweight='bold')
+    ax3.grid(True, alpha=0.3, axis='y')
+    
+    # 4. Q-value heatmap
+    im = ax4.imshow(all_q_values.T, aspect='auto', cmap='viridis', interpolation='nearest')
+    ax4.set_xlabel('Time Step', fontsize=12)
+    ax4.set_ylabel('Action', fontsize=12)
+    ax4.set_title('Q-Values Heatmap\n(yellow = high, purple = low)', fontsize=13, fontweight='bold')
+    plt.colorbar(im, ax=ax4, label='Q-Value')
+    
+    plt.tight_layout()
+    plt.savefig('exploration_analysis.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    # Print statistics
+    unique, counts = np.unique(action_selections, return_counts=True)
+    print(f"Unique actions used: {len(unique)}/{env.cb.size()} ({len(unique)/env.cb.size()*100:.1f}%)")
+    print(f"Most used action: {unique[counts.argmax()]} ({counts.max()}/{len(action_selections)} times)")
+    print(f"Q-value spread: {np.mean(q_spreads):.2f} +/- {np.std(q_spreads):.2f}")
+    print("Saved: exploration_analysis.png")
+
 def main():
     """Main testing function"""
     print("RIS 6G DQN Testing Suite")
@@ -255,8 +329,8 @@ def main():
     if trainer is None:
         return
     
-    # Create test environment (same as training)
-    env = SimpleRISEnv(N=16, M=4, U=3, G=4, K=4)
+    # Create test environment (same as training with time-varying channels)
+    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, channel_variation=0.15)  # 64 actions, 1 user, dynamic
     print(f"Test environment: {env.N} RIS elements, {env.M} BS antennas, {env.U} users")
     print(f"Action space size: {env.cb.size()}")
     
@@ -297,11 +371,18 @@ def main():
     print("="*50)
     test_single_episode_detailed(trainer, env)
     
+    # Test 4: Exploration analysis
+    print("\n" + "="*50)
+    print("TEST 4: Exploration Analysis")
+    print("="*50)
+    plot_exploration_analysis(trainer, env)
+    
     print("\nAll tests completed successfully!")
     print("Generated files:")
     print("  - performance_comparison.png")
     print("  - action_distribution.png") 
     print("  - episode_analysis.png")
+    print("  - exploration_analysis.png")
 
 if __name__ == "__main__":
     main()
