@@ -62,12 +62,12 @@ class RISDataset(Dataset):
 # ---- DQN Network ----
 class DQN(nn.Module):
     """Deep Q Network for RIS control"""
-    def __init__(self, state_dim, n_actions, hidden_dim=128):
+    def __init__(self, state_dim, n_actions, hidden_dim=256):
         """
-        Initialize DQN network
+        Initialize DQN network with improved architecture for richer state
         
         Args:
-            state_dim: Dimension of state space
+            state_dim: Dimension of state space (now 10D with balanced features)
             n_actions: Number of possible actions
             hidden_dim: Hidden layer dimension
         """
@@ -75,11 +75,17 @@ class DQN(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),  # Add dropout for regularization
+            nn.Dropout(0.15),
+            
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),  # Add dropout for regularization
-            nn.Linear(hidden_dim, n_actions)
+            nn.Dropout(0.15),
+            
+            nn.Linear(hidden_dim, 128),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            
+            nn.Linear(128, n_actions)
         )
 
     def forward(self, x):
@@ -110,6 +116,7 @@ class DQNTrainer:
         
         # Initialize optimizer and loss
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=20, gamma=0.8)
         self.loss_fn = nn.MSELoss()
 
     def train_epoch(self, dataloader):
@@ -142,11 +149,14 @@ class DQNTrainer:
             loss.backward()
             
             # Gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=0.5)
+            torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=1.0)
             
             self.optimizer.step()
             
             losses.append(loss.item())
+        
+        # Update learning rate
+        self.scheduler.step()
         
         return np.mean(losses)
 
@@ -167,7 +177,8 @@ class DQNTrainer:
         torch.save({
             'q_net_state_dict': self.q_net.state_dict(),
             'target_net_state_dict': self.target_net.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict()
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict()
         }, path)
 
     def load_model(self, path):
@@ -176,9 +187,11 @@ class DQNTrainer:
         self.q_net.load_state_dict(checkpoint['q_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'scheduler_state_dict' in checkpoint:
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
 
 # ---- Main Training Function ----
-def train_dqn(dataset_path, epochs=10, batch_size=64, lr=1e-4, gamma=0.99, 
+def train_dqn(dataset_path, epochs=100, batch_size=32, lr=1e-4, gamma=0.95, 
               target_update_freq=10, device='cpu', save_path='dqn_model.pth'):
     """
     Train DQN on RIS dataset
@@ -206,13 +219,27 @@ def train_dqn(dataset_path, epochs=10, batch_size=64, lr=1e-4, gamma=0.99,
         device=device
     )
     
-    # Training loop
+    # Training loop with early stopping
     print("Starting DQN training...")
     loss_history = []
+    best_loss = float('inf')
+    patience = 10
+    patience_counter = 0
     
     for epoch in range(epochs):
         loss = trainer.train_epoch(dataloader)
         loss_history.append(loss)
+        
+        # Early stopping
+        if loss < best_loss:
+            best_loss = loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            
+        if patience_counter >= patience:
+            print(f"Early stopping at epoch {epoch+1}")
+            break
         
         # Update target network
         if epoch % target_update_freq == 0:
@@ -222,7 +249,7 @@ def train_dqn(dataset_path, epochs=10, batch_size=64, lr=1e-4, gamma=0.99,
     
     # Plot loss curve
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, epochs + 1), loss_history, 'b-', linewidth=2, label='Training Loss')
+    plt.plot(range(1, len(loss_history) + 1), loss_history, 'b-', linewidth=2, label='Training Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.title('DQN Training Loss Over Epochs')
@@ -230,7 +257,7 @@ def train_dqn(dataset_path, epochs=10, batch_size=64, lr=1e-4, gamma=0.99,
     plt.legend()
     plt.tight_layout()
     plt.savefig('training_loss.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()  # Close plot to avoid display issues
     
     # Save model
     trainer.save_model(save_path)
@@ -266,14 +293,14 @@ if __name__ == "__main__":
         print(f"Dataset not found at {dataset_path}")
         print("Please run data_generation.py first to generate the dataset")
     else:
-        # Train DQN with improved parameters
+        # Train DQN with optimized parameters for single-user system
         trainer = train_dqn(
             dataset_path=dataset_path,
-            epochs=30,
-            batch_size=16,
-            lr=5e-5,
-            gamma=0.9,
-            target_update_freq=15,
+            epochs=80,
+            batch_size=64,
+            lr=2e-4,
+            gamma=0.98,
+            target_update_freq=5,
             device='cpu'
         )
         

@@ -154,8 +154,8 @@ def multi_objective_reward(sinr, alpha=0.7, beta=0.3):
 
 # ---- Environment ----
 class SimpleRISEnv:
-    """Simple RIS environment for dataset generation"""
-    def __init__(self, N=64, M=8, U=6, G=8, K=8, reward_func='pf'):
+    """Simple RIS environment for dataset generation with time-varying channels"""
+    def __init__(self, N=64, M=8, U=6, G=8, K=8, reward_func='pf', channel_variation=0.1):
         """
         Initialize RIS environment
         
@@ -166,11 +166,13 @@ class SimpleRISEnv:
             G: Number of RIS groups
             K: Number of phase options per group
             reward_func: Reward function to use ('pf', 'sum_rate', 'min_sinr', 'fairness', 'robust', 'multi_obj')
+            channel_variation: Channel variation rate (0=static, 0.3=high mobility)
         """
         self.N, self.M, self.U = N, M, U
         self.cb = RISCodebook(N, G, K)
         self.noise = db2lin(-100/10)   # ~ -100 dBm noise
         self.Ptx = db2lin(30 - 30)     # 1 W transmit power
+        self.channel_variation = channel_variation  # How much channels vary
         
         # Set reward function
         self.reward_func_name = reward_func
@@ -190,12 +192,21 @@ class SimpleRISEnv:
             self.reward_func = pf_reward  # Default
 
     def extract_state(self, GU, sinr):
-        """Extract state features from channels and SINR"""
+        """Extract and normalize state features from channels and SINR"""
         feats = []
-        # Effective channel strength per user
-        feats += [np.linalg.norm(g)**2 for g in GU]
-        # Current SINR per user
-        feats += list(sinr)
+        
+        # 1. Effective channel strength per user (normalized by noise)
+        feats += [np.linalg.norm(g)**2 / (self.noise + 1e-10) for g in GU]
+        
+        # 2. Current SINR per user (log scale for better range)
+        feats += [np.log10(s + 1e-10) for s in sinr]
+        
+        # 3. Direct channel strength per user (normalized)
+        feats += [np.linalg.norm(self.h_BU[u])**2 / (self.noise + 1e-10) for u in range(self.U)]
+        
+        # 4. BS→RIS channel quality (normalized)
+        feats += [np.linalg.norm(self.H_BR)**2 / (self.H_BR.size * self.noise + 1e-10)]
+        
         return np.array(feats, dtype=np.float32)
 
     def reset(self):
@@ -213,6 +224,16 @@ class SimpleRISEnv:
 
     def step(self, a):
         """Take action and return next state, reward, done, info"""
+        # Apply time-varying channel model (fading/mobility)
+        if self.channel_variation > 0:
+            # Correlated fading: old_channel * (1-alpha) + new_channel * alpha
+            alpha = self.channel_variation
+            self.H_BR = np.sqrt(1 - alpha**2) * self.H_BR + alpha * complex_randn((self.N, self.M))
+            for u in range(self.U):
+                self.h_RU[u] = np.sqrt(1 - alpha**2) * self.h_RU[u] + alpha * complex_randn((self.N,))
+                self.h_BU[u] = np.sqrt(1 - alpha**2) * self.h_BU[u] + alpha * complex_randn((self.M,))
+        
+        # Compute performance with current action
         Phi = self.cb.action_to_diag(a)
         GU = build_effective(self.H_BR, self.h_RU, self.h_BU, Phi)
         W = mrt_precoder(GU, self.Ptx)
@@ -222,9 +243,77 @@ class SimpleRISEnv:
         return s_next, r, False, {"mean_sinr": np.mean(sinr), "min_sinr": np.min(sinr), "max_sinr": np.max(sinr)}
 
 # ---- Dataset Generation ----
-def generate_dataset(episodes=20, steps=200, outdir="out"):
+def heuristic_policy(env, state, epsilon=0.2):
+    """
+    Epsilon-greedy policy with physics-based heuristic
+    
+    Args:
+        env: RIS environment
+        state: Current state
+        epsilon: Exploration probability
+        
+    Returns:
+        action: Selected action
+    """
+    if np.random.random() < epsilon:
+        # Exploration: random action
+        return np.random.randint(0, env.cb.size())
+    else:
+        # Exploitation: predict future channels and pick best action
+        best_action = 0
+        best_reward = -float('inf')
+        
+        # Sample a subset of actions and evaluate them
+        n_samples = 20  # Try 20 random actions
+        candidate_actions = np.random.choice(env.cb.size(), size=n_samples, replace=False)
+        
+        # Simulate future channels (after fading)
+        if env.channel_variation > 0:
+            alpha = env.channel_variation
+            future_H_BR = np.sqrt(1 - alpha**2) * env.H_BR + alpha * complex_randn((env.N, env.M))
+            future_h_RU = [np.sqrt(1 - alpha**2) * env.h_RU[u] + alpha * complex_randn((env.N,)) for u in range(env.U)]
+            future_h_BU = [np.sqrt(1 - alpha**2) * env.h_BU[u] + alpha * complex_randn((env.M,)) for u in range(env.U)]
+        else:
+            future_H_BR = env.H_BR
+            future_h_RU = env.h_RU
+            future_h_BU = env.h_BU
+        
+        # Evaluate actions on predicted future channels
+        for a in candidate_actions:
+            Phi = env.cb.action_to_diag(a)
+            GU = build_effective(future_H_BR, future_h_RU, future_h_BU, Phi)
+            W = mrt_precoder(GU, env.Ptx)
+            sinr = compute_sinr(GU, W, env.noise)
+            reward = env.reward_func(sinr)
+            
+            # Keep track of best action
+            if reward > best_reward:
+                best_reward = reward
+                best_action = a
+        
+        return best_action
+
+def generate_dataset(episodes=50, steps=200, outdir="out", diverse=True):
     """
     Generate offline RL dataset
+    
+    Args:
+        episodes: Number of episodes to generate
+        steps: Number of steps per episode  
+        outdir: Output directory for dataset
+        diverse: Use diverse dataset generation strategy
+        
+    Returns:
+        pandas.DataFrame: Generated dataset
+    """
+    if diverse:
+        return generate_diverse_dataset(episodes, steps, outdir)
+    else:
+        return generate_simple_dataset(episodes, steps, outdir)
+
+def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
+    """
+    Generate highly diverse offline RL dataset with uniform action coverage
     
     Args:
         episodes: Number of episodes to generate
@@ -234,15 +323,57 @@ def generate_dataset(episodes=20, steps=200, outdir="out"):
     Returns:
         pandas.DataFrame: Generated dataset
     """
-    # Use smaller action space to avoid memory issues
-    # Use 'fairness' reward function for better performance
-    env = SimpleRISEnv(N=16, M=4, U=3, G=4, K=4, reward_func='fairness')  # Best performing reward
+    # Simplified: 1 user, 64 actions (G=3, K=4) with time-varying channels
+    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, reward_func='fairness', channel_variation=0.15)
     rows = []
+    n_actions = env.cb.size()
+    
+    # Strategy: Ensure all actions are represented
+    # Mix of: 50% uniform random, 30% best-of-N, 20% pure exploration
     
     for ep in range(episodes):
         s = env.reset()
         for t in range(steps):
-            a = np.random.randint(0, env.cb.size())  # random policy
+            rand_val = np.random.random()
+            
+            if rand_val < 0.5:
+                # 50%: Pure uniform random (ensures coverage)
+                a = np.random.randint(0, n_actions)
+            elif rand_val < 0.8:
+                # 30%: Best-of-N heuristic (good actions)
+                # Simulate future channels to evaluate actions correctly
+                best_action = 0
+                best_reward = -float('inf')
+                n_samples = 15  # Try 15 actions
+                candidates = np.random.choice(n_actions, size=n_samples, replace=False)
+                
+                # Predict what channels will be after fading
+                if env.channel_variation > 0:
+                    alpha = env.channel_variation
+                    future_H_BR = np.sqrt(1 - alpha**2) * env.H_BR + alpha * complex_randn((env.N, env.M))
+                    future_h_RU = [np.sqrt(1 - alpha**2) * env.h_RU[u] + alpha * complex_randn((env.N,)) for u in range(env.U)]
+                    future_h_BU = [np.sqrt(1 - alpha**2) * env.h_BU[u] + alpha * complex_randn((env.M,)) for u in range(env.U)]
+                else:
+                    future_H_BR = env.H_BR
+                    future_h_RU = env.h_RU
+                    future_h_BU = env.h_BU
+                
+                # Evaluate actions on future channels
+                for candidate_a in candidates:
+                    Phi = env.cb.action_to_diag(candidate_a)
+                    GU = build_effective(future_H_BR, future_h_RU, future_h_BU, Phi)
+                    W = mrt_precoder(GU, env.Ptx)
+                    sinr = compute_sinr(GU, W, env.noise)
+                    reward = env.reward_func(sinr)
+                    
+                    if reward > best_reward:
+                        best_reward = reward
+                        best_action = candidate_a
+                a = best_action
+            else:
+                # 20%: Sequential exploration (cycle through all actions)
+                a = (ep * steps + t) % n_actions
+            
             s_next, r, d, info = env.step(a)
             # mark last step in the episode as done
             done_flag = (t == steps - 1)
@@ -262,10 +393,46 @@ def generate_dataset(episodes=20, steps=200, outdir="out"):
     print("Saved dataset:", df.shape)
     return df
 
+def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
+    """Legacy simple dataset generation with heuristic"""
+    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, reward_func='fairness', channel_variation=0.15)
+    rows = []
+    
+    for ep in range(episodes):
+        s = env.reset()
+        for t in range(steps):
+            a = heuristic_policy(env, s, epsilon=0.2)
+            s_next, r, d, info = env.step(a)
+            done_flag = (t == steps - 1)
+            rows.append({
+                "episode": ep, "t": t,
+                "state": json.dumps(s.tolist()),
+                "action": a, "reward": r,
+                "next_state": json.dumps(s_next.tolist()),
+                "done": done_flag,
+                "mean_sinr": info["mean_sinr"]
+            })
+            s = s_next
+    
+    df = pd.DataFrame(rows)
+    os.makedirs(outdir, exist_ok=True)
+    df.to_csv(os.path.join(outdir, "ris_dataset.csv"), index=False)
+    print("Saved dataset:", df.shape)
+    return df
+
 if __name__ == "__main__":
     # Example usage
-    print("Generating RIS 6G dataset...")
-    df = generate_dataset(episodes=20, steps=200, outdir="out")
+    print("Generating diverse RIS 6G dataset...")
+    print("Configuration: 1 user, 4 BS antennas, 12 RIS elements, 64 actions (G=3, K=4), 20,000 samples")
+    print("Time-varying channels enabled (variation=0.15)")
+    df = generate_dataset(episodes=100, steps=200, outdir="out", diverse=True)
     print("Dataset shape:", df.shape)
     print("First few rows:")
     print(df.head())
+    
+    # Show action distribution in dataset
+    actions = df['action'].values
+    unique_actions = len(np.unique(actions))
+    total_actions = 64  # 4^3
+    print(f"\nAction diversity in dataset: {unique_actions}/{total_actions} actions ({unique_actions/total_actions*100:.1f}%)")
+    print(f"Samples per action (avg): {len(actions)/unique_actions:.0f}")
