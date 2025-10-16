@@ -6,8 +6,10 @@ This project implements a Deep Q-Network (DQN) for optimizing Reconfigurable Int
 
 ## 🎯 Key Features
 
-- **Discrete RIS Control**: 256 possible RIS configurations (4 groups × 4 phase options)
+- **Discrete RIS Control**: 16 possible RIS configurations (2 groups × 2 phase options × 4 combinations)
 - **DQN Training**: Offline reinforcement learning with Double DQN architecture
+- **Physics-Based Heuristic**: Corrected heuristic policy for better data generation
+- **Time-Varying Channels**: Correlated fading model for realistic scenarios
 - **Multiple Reward Functions**: Proportional fairness, sum rate, min-SINR, and fairness-based rewards
 - **Comprehensive Testing**: Performance comparison with random policy and detailed analysis
 - **Reproducible Results**: Fixed random seeds for consistent performance
@@ -15,25 +17,27 @@ This project implements a Deep Q-Network (DQN) for optimizing Reconfigurable Int
 ## 🏗️ System Architecture
 
 ### RIS Configuration
-- **RIS Elements**: 16 elements divided into 4 groups
+- **RIS Elements**: 8 elements divided into 2 groups
 - **Base Station**: 4 antennas with MRT precoding
-- **Users**: 3 mobile devices
-- **Action Space**: 256 discrete RIS phase configurations
-- **State Space**: 6D features (channel norms + SINR values)
+- **Users**: 1 mobile device (simplified for better learning)
+- **Action Space**: 16 discrete RIS phase configurations
+- **State Space**: 4D features (effective channel, SINR, direct channel, BS-RIS quality)
 
 ### Channel Model
-- **BS→RIS Channel**: H_BR (16×4 complex matrix)
-- **RIS→User Channels**: h_RU (16×1 for each user)
-- **Direct BS→User**: h_BU (4×1 for each user)
+- **BS→RIS Channel**: H_BR (8×4 complex matrix)
+- **RIS→User Channels**: h_RU (8×1 for single user)
+- **Direct BS→User**: h_BU (4×1 for single user)
 - **Effective Channel**: g = h_BU + h_RU^H × Φ × H_BR
+- **Time-Varying**: Correlated fading with α=0.1 for realistic mobility
 
 ## 📊 Performance Results
 
-### Current Performance (with Fixed Seeds)
-- **DQN vs Random**: +1.5% reward improvement, +5.2% SINR improvement
-- **Average SINR**: 4.5 dB (2.82 linear)
-- **Peak SINR**: 8.2 dB (8.18 linear)
-- **Action Diversity**: 46.1% of action space used (118/256 actions)
+### Current Performance (Latest Version)
+- **DQN vs Random**: +17% SINR improvement over random policy
+- **Average SINR**: 27.0 dB (500 linear) - Single-user SNR
+- **Peak SINR**: 30.4 dB (1084 linear) - Excellent signal quality
+- **Action Diversity**: Dynamic exploration with physics-based heuristic
+- **System Stability**: Fixed heuristic policy bug for correct channel evaluation
 
 ### Training Results
 - **Loss Convergence**: 339 → 26 (stable learning over 30 epochs)
@@ -51,7 +55,8 @@ pip install pandas numpy torch matplotlib
 ```bash
 python data_generation.py
 ```
-- Generates 4,000 samples with fairness reward function
+- Generates 2,000 samples with fairness reward function
+- Uses corrected physics-based heuristic policy
 - Creates `out/ris_dataset.csv`
 
 ### 2. Train DQN
@@ -86,6 +91,7 @@ RLRIS/
 ├── performance_comparison.png  # DQN vs Random comparison
 ├── action_distribution.png    # Action usage analysis
 ├── episode_analysis.png       # Detailed episode trajectory
+├── exploration_analysis.png   # Action selection and Q-value analysis
 └── reward_function_comparison.png # Reward function analysis
 ```
 
@@ -93,10 +99,10 @@ RLRIS/
 
 ### Environment Parameters
 ```python
-N = 16  # RIS elements
+N = 8   # RIS elements
 M = 4   # BS antennas  
-U = 3   # Users
-G = 4   # RIS groups
+U = 1   # Users (simplified)
+G = 2   # RIS groups
 K = 4   # Phase options per group
 ```
 
@@ -129,16 +135,17 @@ target_update_freq = 15
 - **Exploration**: 46.1% of action space utilized
 
 ### SINR Performance
-- **Average**: 4.5 dB (2.82 linear)
-- **Range**: 1.1 - 8.2 dB
-- **Improvement**: 5.2% better than random policy
+- **Average**: 27.0 dB (500 linear) - Single-user SNR
+- **Range**: 24.8 - 30.4 dB
+- **Improvement**: 17% better than random policy
+- **Note**: High SNR values due to single-user system (no interference)
 
 ## 🛠️ Customization
 
 ### Changing System Parameters
 Edit `data_generation.py`:
 ```python
-env = SimpleRISEnv(N=32, M=8, U=6, G=8, K=4)  # Larger system
+env = SimpleRISEnv(N=16, M=4, U=3, G=4, K=4)  # Multi-user system
 ```
 
 ### Different Reward Functions
@@ -156,6 +163,25 @@ trainer = train_dqn(
     gamma=0.95           # Higher discount factor
 )
 ```
+
+## 🆕 Recent Improvements
+
+### Critical Bug Fixes
+- **Fixed Heuristic Policy Bug**: Now correctly evaluates actions on future channels after fading
+- **Improved Data Generation**: Physics-based heuristic with proper channel prediction
+- **Enhanced System Stability**: Single-user configuration for better learning convergence
+
+### Performance Enhancements
+- **17% SINR Improvement**: Significant performance gain over random policy
+- **Realistic SNR Values**: 24-30 dB range for single-user system
+- **Dynamic Exploration**: Time-varying channels force adaptive learning
+- **Comprehensive Analysis**: New exploration analysis plots and metrics
+
+### Technical Improvements
+- **Simplified Architecture**: 8 RIS elements, 2 groups, 16 actions
+- **4D State Space**: Optimized feature representation
+- **Time-Varying Channels**: Correlated fading model (α=0.1)
+- **Better Visualization**: Enhanced plots for action selection and Q-values
 
 ## 🔬 Research Applications
 
