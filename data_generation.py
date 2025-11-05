@@ -55,11 +55,15 @@ class RISCodebook:
         # Convert integer a to group-phase assignment
         digits = []
         x = a
+        #The RIS is partitioned into G groups, requiring G phase decisions.
         for _ in range(self.G):
             digits.append(x % self.K)
             x //= self.K
+        #Since modulo extracts digits from least significant to most significant (right-to-left), the list is reversed to map the indices correctly to Group 1, Group 2, ..., Group G.    
         digits = digits[::-1]
+        #Discrete Phase Shift: This implements phase quantization, where the RIS elements are limited to K distinct phase shifts
         phases = self.phase_options[digits]
+        #Grouped RIS Architecture: This implements grouped phase control. This is a practical simplification where $N/G$ adjacent elements share a single control signal, reducing the complexity of the control hardware and the size of the action space from K^N to K^G
         phase_vec = np.repeat(phases, self.group_size)
         return np.diag(np.exp(1j*phase_vec))
 
@@ -90,8 +94,8 @@ def compute_sinr(GU, W, noise):
     out = np.zeros(U)
     for u in range(U):
         g = GU[u]
-        num = abs(g @ W[u])**2
-        denom = noise + sum(abs(g @ W[v])**2 for v in range(U) if v != u)
+        num = abs((g @ W[u]).item())**2  # scalar
+        denom = noise + sum(abs((g @ W[v]).item())**2 for v in range(U) if v != u)
         out[u] = float(num / denom)
     return out
 
@@ -170,8 +174,8 @@ class SimpleRISEnv:
         """
         self.N, self.M, self.U = N, M, U
         self.cb = RISCodebook(N, G, K)
-        self.noise = db2lin(-100/10)   # ~ -100 dBm noise
-        self.Ptx = db2lin(30 - 30)     # 1 W transmit power
+        self.noise = db2lin(-100)   # ~ -100 dBm noise
+        self.Ptx = db2lin(30)     # 1 W transmit power
         self.channel_variation = channel_variation  # How much channels vary
         
         # Set reward function
@@ -247,51 +251,52 @@ def heuristic_policy(env, state, epsilon=0.2):
     """
     Epsilon-greedy policy with physics-based heuristic
     
+    Evaluates candidate actions on current channels using a best-of-N strategy.
+    This approach is stable and appropriate for slowly-varying channels (correlation ~85%).
+    
     Args:
         env: RIS environment
-        state: Current state
-        epsilon: Exploration probability
+        state: Current state (not directly used, but kept for API consistency)
+        epsilon: Exploration probability (default: 0.2)
         
     Returns:
-        action: Selected action
+        action: Selected action (int in [0, K^G))
     """
     if np.random.random() < epsilon:
-        # Exploration: random action
+        # Exploration: uniform random action
         return np.random.randint(0, env.cb.size())
-    else:
-        # Exploitation: predict future channels and pick best action
-        best_action = 0
-        best_reward = -float('inf')
+    
+    # Exploitation: best-of-N heuristic on current channels
+    best_action = 0
+    best_reward = -float('inf')
+    
+    # Evaluate a random subset of actions
+    n_candidates = min(20, env.cb.size())  # Try up to 20 actions
+    candidate_actions = np.random.choice(env.cb.size(), size=n_candidates, replace=False)
+    
+    # Test each candidate action on CURRENT channels
+    for a in candidate_actions:
+        # Apply RIS phase configuration
+        Phi = env.cb.action_to_diag(a)
         
-        # Sample a subset of actions and evaluate them
-        n_samples = 20  # Try 20 random actions
-        candidate_actions = np.random.choice(env.cb.size(), size=n_samples, replace=False)
+        # Compute effective channels
+        GU = build_effective(env.H_BR, env.h_RU, env.h_BU, Phi)
         
-        # Simulate future channels (after fading)
-        if env.channel_variation > 0:
-            alpha = env.channel_variation
-            future_H_BR = np.sqrt(1 - alpha**2) * env.H_BR + alpha * complex_randn((env.N, env.M))
-            future_h_RU = [np.sqrt(1 - alpha**2) * env.h_RU[u] + alpha * complex_randn((env.N,)) for u in range(env.U)]
-            future_h_BU = [np.sqrt(1 - alpha**2) * env.h_BU[u] + alpha * complex_randn((env.M,)) for u in range(env.U)]
-        else:
-            future_H_BR = env.H_BR
-            future_h_RU = env.h_RU
-            future_h_BU = env.h_BU
+        # Design MRT precoder
+        W = mrt_precoder(GU, env.Ptx)
         
-        # Evaluate actions on predicted future channels
-        for a in candidate_actions:
-            Phi = env.cb.action_to_diag(a)
-            GU = build_effective(future_H_BR, future_h_RU, future_h_BU, Phi)
-            W = mrt_precoder(GU, env.Ptx)
-            sinr = compute_sinr(GU, W, env.noise)
-            reward = env.reward_func(sinr)
-            
-            # Keep track of best action
-            if reward > best_reward:
-                best_reward = reward
-                best_action = a
+        # Compute SINR
+        sinr = compute_sinr(GU, W, env.noise)
         
-        return best_action
+        # Evaluate reward
+        reward = env.reward_func(sinr)
+        
+        # Track best action
+        if reward > best_reward:
+            best_reward = reward
+            best_action = a
+    
+    return best_action
 
 def generate_dataset(episodes=50, steps=200, outdir="out", diverse=True):
     """
@@ -314,22 +319,10 @@ def generate_dataset(episodes=50, steps=200, outdir="out", diverse=True):
 def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
     """
     Generate highly diverse offline RL dataset with uniform action coverage
-    
-    Args:
-        episodes: Number of episodes to generate
-        steps: Number of steps per episode
-        outdir: Output directory for dataset
-        
-    Returns:
-        pandas.DataFrame: Generated dataset
     """
-    # Simplified: 1 user, 64 actions (G=3, K=4) with time-varying channels
     env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, reward_func='fairness', channel_variation=0.15)
     rows = []
     n_actions = env.cb.size()
-    
-    # Strategy: Ensure all actions are represented
-    # Mix of: 50% uniform random, 30% best-of-N, 20% pure exploration
     
     for ep in range(episodes):
         s = env.reset()
@@ -337,46 +330,20 @@ def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
             rand_val = np.random.random()
             
             if rand_val < 0.5:
-                # 50%: Pure uniform random (ensures coverage)
+                # 50%: Pure uniform random
                 a = np.random.randint(0, n_actions)
+                
             elif rand_val < 0.8:
-                # 30%: Best-of-N heuristic (good actions)
-                # Simulate future channels to evaluate actions correctly
-                best_action = 0
-                best_reward = -float('inf')
-                n_samples = 15  # Try 15 actions
-                candidates = np.random.choice(n_actions, size=n_samples, replace=False)
+                # 30%: Physics-based heuristic
+                a = heuristic_policy(env, s, epsilon=0.0)  # Pure exploitation
                 
-                # Predict what channels will be after fading
-                if env.channel_variation > 0:
-                    alpha = env.channel_variation
-                    future_H_BR = np.sqrt(1 - alpha**2) * env.H_BR + alpha * complex_randn((env.N, env.M))
-                    future_h_RU = [np.sqrt(1 - alpha**2) * env.h_RU[u] + alpha * complex_randn((env.N,)) for u in range(env.U)]
-                    future_h_BU = [np.sqrt(1 - alpha**2) * env.h_BU[u] + alpha * complex_randn((env.M,)) for u in range(env.U)]
-                else:
-                    future_H_BR = env.H_BR
-                    future_h_RU = env.h_RU
-                    future_h_BU = env.h_BU
-                
-                # Evaluate actions on future channels
-                for candidate_a in candidates:
-                    Phi = env.cb.action_to_diag(candidate_a)
-                    GU = build_effective(future_H_BR, future_h_RU, future_h_BU, Phi)
-                    W = mrt_precoder(GU, env.Ptx)
-                    sinr = compute_sinr(GU, W, env.noise)
-                    reward = env.reward_func(sinr)
-                    
-                    if reward > best_reward:
-                        best_reward = reward
-                        best_action = candidate_a
-                a = best_action
             else:
-                # 20%: Sequential exploration (cycle through all actions)
+                # 20%: Sequential exploration
                 a = (ep * steps + t) % n_actions
             
             s_next, r, d, info = env.step(a)
-            # mark last step in the episode as done
             done_flag = (t == steps - 1)
+            
             rows.append({
                 "episode": ep, "t": t,
                 "state": json.dumps(s.tolist()),
@@ -390,7 +357,7 @@ def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
     df = pd.DataFrame(rows)
     os.makedirs(outdir, exist_ok=True)
     df.to_csv(os.path.join(outdir, "ris_dataset.csv"), index=False)
-    print("Saved dataset:", df.shape)
+    print(f"Saved dataset: {df.shape}")
     return df
 
 def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
