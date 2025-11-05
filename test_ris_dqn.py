@@ -1,9 +1,14 @@
 """
-RIS 6G DQN Testing Script
-========================
+RIS 6G DQN Testing Script (WITH STATE NORMALIZATION SUPPORT)
+===========================================================
 
 This script tests the trained DQN model on the RIS 6G environment.
 It includes performance evaluation, action analysis, and comparison with random policy.
+
+MODIFICATIONS:
+- Added state normalization support for inference
+- Uses trainer.select_action() method with automatic normalization
+- Compatible with normalized DQN models
 """
 
 import os
@@ -20,7 +25,7 @@ np.random.seed(42)
 torch.manual_seed(42)
 
 def load_trained_model(model_path='dqn_model.pth', state_dim=4, n_actions=64):
-    """Load the trained DQN model"""
+    """Load the trained DQN model with normalization statistics"""
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
         return None
@@ -28,7 +33,14 @@ def load_trained_model(model_path='dqn_model.pth', state_dim=4, n_actions=64):
     # Initialize trainer and load model
     trainer = DQNTrainer(state_dim, n_actions, device='cpu')
     trainer.load_model(model_path)
-    print(f"Loaded trained model from {model_path}")
+    print(f"✅ Loaded trained model from {model_path}")
+    
+    # Check if normalization is enabled
+    if trainer.normalize_states:
+        print(f"✅ State normalization enabled in model")
+    else:
+        print(f"⚠️  State normalization disabled in model")
+    
     return trainer
 
 def test_model_performance(trainer, env, n_episodes=5, n_steps=100):
@@ -45,12 +57,10 @@ def test_model_performance(trainer, env, n_episodes=5, n_steps=100):
         episode_sinr = []
         
         for step in range(n_steps):
-            # Get action from trained model (pure greedy policy for testing)
-            with torch.no_grad():
-                trainer.q_net.eval()  # Set to eval mode for BatchNorm
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-                q_values = trainer.q_net(state_tensor)
-                action = q_values.argmax().item()
+            # ============= USE TRAINER.SELECT_ACTION WITH NORMALIZATION =============
+            # This automatically handles state normalization if enabled
+            action = trainer.select_action(state, epsilon=0.0)  # Pure greedy for testing
+            # ========================================================================
             
             # Take action in environment
             next_state, reward, done, info = env.step(action)
@@ -132,7 +142,7 @@ def plot_performance_comparison(dqn_rewards, dqn_sinrs, random_rewards, random_s
     
     plt.tight_layout()
     plt.savefig('performance_comparison.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()  # Close instead of show for non-interactive environments
     print("Performance comparison plot saved as 'performance_comparison.png'")
 
 def analyze_action_distribution(action_distribution, n_actions=64):
@@ -148,9 +158,10 @@ def analyze_action_distribution(action_distribution, n_actions=64):
     for action, count in sorted_actions[:5]:
         print(f"  Action {action}: {count} times")
     
-    print(f"\nTop 5 least used actions:")
-    for action, count in sorted_actions[-5:]:
-        print(f"  Action {action}: {count} times")
+    if len(sorted_actions) >= 5:
+        print(f"\nTop 5 least used actions:")
+        for action, count in sorted_actions[-5:]:
+            print(f"  Action {action}: {count} times")
     
     # Plot action distribution
     actions = list(action_distribution.keys())
@@ -164,7 +175,7 @@ def analyze_action_distribution(action_distribution, n_actions=64):
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig('action_distribution.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()
     print("Action distribution plot saved as 'action_distribution.png'")
 
 def test_single_episode_detailed(trainer, env):
@@ -176,13 +187,21 @@ def test_single_episode_detailed(trainer, env):
     actions_history = []
     rewards_history = []
     sinrs_history = []
+    q_maxs_history = []
     
     for step in range(50):  # Shorter episode for detailed analysis
-        # Get Q-values for current state
+        # ============= GET Q-VALUES WITH NORMALIZATION =============
+        # Normalize state if needed before getting Q-values
+        if trainer.normalize_states and trainer.state_mean is not None:
+            normalized_state = (state - trainer.state_mean) / trainer.state_std
+        else:
+            normalized_state = state
+        
         with torch.no_grad():
-            trainer.q_net.eval()  # Set to eval mode for BatchNorm
-            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-            q_values = trainer.q_net(state_tensor).squeeze().numpy()
+            trainer.q_net.eval()
+            state_tensor = torch.tensor(normalized_state, dtype=torch.float32).unsqueeze(0)
+            q_values = trainer.q_net(state_tensor).squeeze().cpu().numpy()
+        # ===========================================================
         
         # Select action
         action = q_values.argmax()
@@ -195,6 +214,7 @@ def test_single_episode_detailed(trainer, env):
         actions_history.append(action)
         rewards_history.append(reward)
         sinrs_history.append(info['mean_sinr'])
+        q_maxs_history.append(q_values.max())
         
         print(f"Step {step+1}: Action={action}, Reward={reward:.3f}, SINR={info['mean_sinr']:.3f}, Q-max={q_values.max():.3f}")
         
@@ -229,8 +249,10 @@ def test_single_episode_detailed(trainer, env):
     # State evolution (first 3 dimensions)
     states_array = np.array(states_history)
     ax4.plot(states_array[:, 0], label='State[0]', linewidth=2)
-    ax4.plot(states_array[:, 1], label='State[1]', linewidth=2)
-    ax4.plot(states_array[:, 2], label='State[2]', linewidth=2)
+    if states_array.shape[1] > 1:
+        ax4.plot(states_array[:, 1], label='State[1]', linewidth=2)
+    if states_array.shape[1] > 2:
+        ax4.plot(states_array[:, 2], label='State[2]', linewidth=2)
     ax4.set_xlabel('Step')
     ax4.set_ylabel('State Value')
     ax4.set_title('State Evolution (First 3 Dimensions)')
@@ -239,7 +261,7 @@ def test_single_episode_detailed(trainer, env):
     
     plt.tight_layout()
     plt.savefig('episode_analysis.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()
     print("Episode analysis plot saved as 'episode_analysis.png'")
 
 def plot_exploration_analysis(trainer, env):
@@ -254,10 +276,17 @@ def plot_exploration_analysis(trainer, env):
     for episode in range(5):
         state = env.reset()
         for step in range(50):
+            # ============= NORMALIZE STATE BEFORE Q-VALUE COMPUTATION =============
+            if trainer.normalize_states and trainer.state_mean is not None:
+                normalized_state = (state - trainer.state_mean) / trainer.state_std
+            else:
+                normalized_state = state
+            
             with torch.no_grad():
                 trainer.q_net.eval()
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                state_tensor = torch.tensor(normalized_state, dtype=torch.float32).unsqueeze(0)
                 q_values = trainer.q_net(state_tensor).squeeze().cpu().numpy()
+            # =====================================================================
             
             all_q_values.append(q_values)
             action = q_values.argmax()
@@ -316,8 +345,8 @@ def plot_exploration_analysis(trainer, env):
 
 def main():
     """Main testing function"""
-    print("RIS 6G DQN Testing Suite")
-    print("=" * 50)
+    print("RIS 6G DQN Testing Suite (with State Normalization)")
+    print("=" * 60)
     
     # Check if model exists
     if not os.path.exists('dqn_model.pth'):
@@ -329,15 +358,25 @@ def main():
     if trainer is None:
         return
     
-    # Create test environment (same as training with time-varying channels)
-    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, channel_variation=0.15)  # 64 actions, 1 user, dynamic
-    print(f"Test environment: {env.N} RIS elements, {env.M} BS antennas, {env.U} users")
-    print(f"Action space size: {env.cb.size()}")
+    # Create test environment (same configuration as training)
+    env = SimpleRISEnv(
+        N=12, M=4, U=1, G=3, K=4, 
+        reward_func='fairness',  # Match training reward function
+        channel_variation=0.15   # Match training channel dynamics
+    )
+    
+    print(f"\nTest environment configuration:")
+    print(f"  RIS elements: {env.N}")
+    print(f"  BS antennas: {env.M}")
+    print(f"  Users: {env.U}")
+    print(f"  Action space size: {env.cb.size()}")
+    print(f"  Reward function: {env.reward_func_name}")
+    print(f"  Channel variation: {env.channel_variation}")
     
     # Test 1: Performance comparison
-    print("\n" + "="*50)
+    print("\n" + "="*60)
     print("TEST 1: Performance Comparison")
-    print("="*50)
+    print("="*60)
     
     dqn_rewards, dqn_sinrs, action_dist = test_model_performance(trainer, env, n_episodes=5, n_steps=100)
     random_rewards, random_sinrs = test_random_policy(env, n_episodes=5, n_steps=100)
@@ -348,37 +387,42 @@ def main():
     dqn_avg_sinr = np.mean(dqn_sinrs)
     random_avg_sinr = np.mean(random_sinrs)
     
-    print(f"\nPerformance Summary:")
-    print(f"DQN Average Reward: {dqn_avg_reward:.2f}")
+    print(f"\n{'='*60}")
+    print("PERFORMANCE SUMMARY")
+    print(f"{'='*60}")
+    print(f"DQN Average Reward:    {dqn_avg_reward:.2f}")
     print(f"Random Average Reward: {random_avg_reward:.2f}")
-    print(f"Improvement: {((dqn_avg_reward - random_avg_reward) / random_avg_reward * 100):.1f}%")
-    print(f"\nDQN Average SINR: {dqn_avg_sinr:.2f}")
-    print(f"Random Average SINR: {random_avg_sinr:.2f}")
-    print(f"SINR Improvement: {((dqn_avg_sinr - random_avg_sinr) / random_avg_sinr * 100):.1f}%")
+    print(f"Improvement:           {((dqn_avg_reward - random_avg_reward) / random_avg_reward * 100):.1f}%")
+    print(f"\nDQN Average SINR:      {dqn_avg_sinr:.2f}")
+    print(f"Random Average SINR:   {random_avg_sinr:.2f}")
+    print(f"SINR Improvement:      {((dqn_avg_sinr - random_avg_sinr) / random_avg_sinr * 100):.1f}%")
+    print(f"{'='*60}")
     
     # Plot comparison
     plot_performance_comparison(dqn_rewards, dqn_sinrs, random_rewards, random_sinrs)
     
     # Test 2: Action distribution analysis
-    print("\n" + "="*50)
+    print("\n" + "="*60)
     print("TEST 2: Action Distribution Analysis")
-    print("="*50)
+    print("="*60)
     analyze_action_distribution(action_dist, env.cb.size())
     
     # Test 3: Detailed single episode
-    print("\n" + "="*50)
+    print("\n" + "="*60)
     print("TEST 3: Detailed Episode Analysis")
-    print("="*50)
+    print("="*60)
     test_single_episode_detailed(trainer, env)
     
     # Test 4: Exploration analysis
-    print("\n" + "="*50)
+    print("\n" + "="*60)
     print("TEST 4: Exploration Analysis")
-    print("="*50)
+    print("="*60)
     plot_exploration_analysis(trainer, env)
     
-    print("\nAll tests completed successfully!")
-    print("Generated files:")
+    print("\n" + "="*60)
+    print("✅ ALL TESTS COMPLETED SUCCESSFULLY!")
+    print("="*60)
+    print("\nGenerated files:")
     print("  - performance_comparison.png")
     print("  - action_distribution.png") 
     print("  - episode_analysis.png")
