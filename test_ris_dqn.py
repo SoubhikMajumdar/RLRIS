@@ -33,13 +33,13 @@ def load_trained_model(model_path='dqn_model.pth', state_dim=4, n_actions=64):
     # Initialize trainer and load model
     trainer = DQNTrainer(state_dim, n_actions, device='cpu')
     trainer.load_model(model_path)
-    print(f"✅ Loaded trained model from {model_path}")
+    print(f"[OK] Loaded trained model from {model_path}")
     
     # Check if normalization is enabled
     if trainer.normalize_states:
-        print(f"✅ State normalization enabled in model")
+        print(f"[OK] State normalization enabled in model")
     else:
-        print(f"⚠️  State normalization disabled in model")
+        print(f"[WARNING] State normalization disabled in model")
     
     return trainer
 
@@ -361,7 +361,7 @@ def main():
     # Create test environment (same configuration as training)
     env = SimpleRISEnv(
         N=12, M=4, U=1, G=3, K=4, 
-        reward_func='fairness',  # Match training reward function
+        reward_func='fairness',  
         channel_variation=0.15   # Match training channel dynamics
     )
     
@@ -378,8 +378,10 @@ def main():
     print("TEST 1: Performance Comparison")
     print("="*60)
     
-    dqn_rewards, dqn_sinrs, action_dist = test_model_performance(trainer, env, n_episodes=5, n_steps=100)
-    random_rewards, random_sinrs = test_random_policy(env, n_episodes=5, n_steps=100)
+    # Use same step count for fair comparison
+    n_test_steps = 200
+    dqn_rewards, dqn_sinrs, action_dist = test_model_performance(trainer, env, n_episodes=5, n_steps=n_test_steps)
+    random_rewards, random_sinrs = test_random_policy(env, n_episodes=5, n_steps=n_test_steps)
     
     # Calculate statistics
     dqn_avg_reward = np.mean(dqn_rewards)
@@ -420,7 +422,7 @@ def main():
     plot_exploration_analysis(trainer, env)
     
     print("\n" + "="*60)
-    print("✅ ALL TESTS COMPLETED SUCCESSFULLY!")
+    print("[OK] ALL TESTS COMPLETED SUCCESSFULLY!")
     print("="*60)
     print("\nGenerated files:")
     print("  - performance_comparison.png")
