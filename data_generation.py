@@ -174,8 +174,9 @@ class SimpleRISEnv:
         """
         self.N, self.M, self.U = N, M, U
         self.cb = RISCodebook(N, G, K)
-        self.noise = db2lin(-100)   # ~ -100 dBm noise
-        self.Ptx = db2lin(30)     # 1 W transmit power
+        self.noise = db2lin(-100)   # ~ -100 dBm noise floor
+        # 30 dBm = 10^(30/10) = 1000 mW = 1 W transmit power
+        self.Ptx = db2lin(30)     # 30 dBm = 1 W
         self.channel_variation = channel_variation  # How much channels vary
         
         # Set reward function
@@ -196,19 +197,25 @@ class SimpleRISEnv:
             self.reward_func = pf_reward  # Default
 
     def extract_state(self, GU, sinr):
-        """Extract and normalize state features from channels and SINR"""
+        """
+        Extract and normalize state features from channels and SINR
+        
+        Features are normalized by noise power for scale consistency.
+        Further standardization (mean=0, std=1) is applied during DQN training
+        in RISDataset to handle different feature scales (channel powers vs log-SINR).
+        """
         feats = []
         
-        # 1. Effective channel strength per user (normalized by noise)
+        # 1. Effective channel strength per user (normalized by noise power)
         feats += [np.linalg.norm(g)**2 / (self.noise + 1e-10) for g in GU]
         
-        # 2. Current SINR per user (log scale for better range)
+        # 2. Current SINR per user (log scale for better numerical range)
         feats += [np.log10(s + 1e-10) for s in sinr]
         
-        # 3. Direct channel strength per user (normalized)
+        # 3. Direct channel strength per user (normalized by noise power)
         feats += [np.linalg.norm(self.h_BU[u])**2 / (self.noise + 1e-10) for u in range(self.U)]
         
-        # 4. BS→RIS channel quality (normalized)
+        # 4. BS→RIS channel quality (normalized by noise power per element)
         feats += [np.linalg.norm(self.H_BR)**2 / (self.H_BR.size * self.noise + 1e-10)]
         
         return np.array(feats, dtype=np.float32)
@@ -251,8 +258,10 @@ def heuristic_policy(env, state, epsilon=0.2):
     """
     Epsilon-greedy policy with physics-based heuristic
     
-    Evaluates candidate actions on current channels using a best-of-N strategy.
-    This approach is stable and appropriate for slowly-varying channels (correlation ~85%).
+    Evaluates candidate actions on CURRENT channels using a best-of-N strategy.
+    Uses current channels (not future predictions) to avoid noise from single-sample
+    channel variation. This approach is stable and appropriate for slowly-varying 
+    channels (correlation ~85%).
     
     Args:
         env: RIS environment
@@ -266,7 +275,7 @@ def heuristic_policy(env, state, epsilon=0.2):
         # Exploration: uniform random action
         return np.random.randint(0, env.cb.size())
     
-    # Exploitation: best-of-N heuristic on current channels
+    # Exploitation: best-of-N heuristic on CURRENT channels (not future predictions)
     best_action = 0
     best_reward = -float('inf')
     
@@ -329,7 +338,7 @@ def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
         for t in range(steps):
             rand_val = np.random.random()
             
-            if rand_val < 0.5:
+            if rand_val < 0.3:
                 # 50%: Pure uniform random
                 a = np.random.randint(0, n_actions)
                 
