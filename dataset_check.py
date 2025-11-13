@@ -128,9 +128,9 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('validation_action_coverage.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_action.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_action_coverage.png")
+        print("\n[OK] Saved: checkds_action.png")
         
         return unique_actions, n_actions
     
@@ -188,9 +188,9 @@ class DatasetValidator:
             axes[i].axis('off')
         
         plt.tight_layout()
-        plt.savefig('validation_state_distribution.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_state.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_state_distribution.png")
+        print("\n[OK] Saved: checkds_state.png")
         
         return n_features
     
@@ -253,9 +253,9 @@ class DatasetValidator:
         ax4.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('validation_reward_analysis.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_reward.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_reward_analysis.png")
+        print("\n[OK] Saved: checkds_reward.png")
     
     def validate_transitions(self):
         """Check state transition dynamics"""
@@ -332,9 +332,9 @@ class DatasetValidator:
         ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('validation_transitions.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_transition.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_transitions.png")
+        print("\n[OK] Saved: checkds_transition.png")
     
     def validate_action_reward_structure(self):
         """Check if actions differentiate rewards"""
@@ -385,9 +385,9 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('validation_action_reward.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_action_reward.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_action_reward.png")
+        print("\n[OK] Saved: checkds_action_reward.png")
     
     def validate_sinr(self):
         """Check SINR values are physically reasonable"""
@@ -452,9 +452,9 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('validation_sinr.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_sinr.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_sinr.png")
+        print("\n[OK] Saved: checkds_sinr.png")
     
     def validate_offline_rl_suitability(self):
         """Check dataset properties for offline RL"""
@@ -537,9 +537,9 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('validation_offline_rl.png', dpi=300, bbox_inches='tight')
+        plt.savefig('checkds_offline_rl.png', dpi=300, bbox_inches='tight')
         plt.close()
-        print("\n[OK] Saved: validation_offline_rl.png")
+        print("\n[OK] Saved: checkds_offline_rl.png")
     
     def generate_summary_report(self):
         """Generate final summary report"""
@@ -557,13 +557,13 @@ class DatasetValidator:
         
         print("\n" + "="*70)
         print("Generated validation plots:")
-        print("  - validation_action_coverage.png")
-        print("  - validation_state_distribution.png")
-        print("  - validation_reward_analysis.png")
-        print("  - validation_transitions.png")
-        print("  - validation_action_reward.png")
-        print("  - validation_sinr.png")
-        print("  - validation_offline_rl.png")
+        print("  - checkds_action.png")
+        print("  - checkds_state.png")
+        print("  - checkds_reward.png")
+        print("  - checkds_transition.png")
+        print("  - checkds_action_reward.png")
+        print("  - checkds_sinr.png")
+        print("  - checkds_offline_rl.png")
         print("="*70)
         
         return len(self.issues) == 0
