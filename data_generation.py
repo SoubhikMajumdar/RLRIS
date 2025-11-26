@@ -328,8 +328,10 @@ def generate_dataset(episodes=50, steps=200, outdir="out", diverse=True):
 def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
     """
     Generate highly diverse offline RL dataset with uniform action coverage
+    
+    Uses multi-objective reward (alpha=0.7, beta=0.3) to balance sum rate and fairness
     """
-    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, reward_func='fairness', channel_variation=0.15)
+    env = SimpleRISEnv(N=12, M=4, U=2, G=3, K=4, reward_func='multi_obj', channel_variation=0.15)
     rows = []
     n_actions = env.cb.size()
     
@@ -370,8 +372,12 @@ def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
     return df
 
 def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
-    """Legacy simple dataset generation with heuristic"""
-    env = SimpleRISEnv(N=12, M=4, U=1, G=3, K=4, reward_func='fairness', channel_variation=0.15)
+    """
+    Legacy simple dataset generation with heuristic
+    
+    Uses multi-objective reward (alpha=0.7, beta=0.3) to balance sum rate and fairness
+    """
+    env = SimpleRISEnv(N=12, M=4, U=2, G=3, K=4, reward_func='multi_obj', channel_variation=0.15)
     rows = []
     
     for ep in range(episodes):
@@ -399,7 +405,7 @@ def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
 if __name__ == "__main__":
     # Example usage
     print("Generating diverse RIS 6G dataset...")
-    print("Configuration: 1 user, 4 BS antennas, 12 RIS elements, 64 actions (G=3, K=4), 20,000 samples")
+    print("Configuration: 2 users, 4 BS antennas, 12 RIS elements, 64 actions (G=3, K=4), 20,000 samples")
     print("Time-varying channels enabled (variation=0.15)")
     df = generate_dataset(episodes=100, steps=200, outdir="out", diverse=True)
     print("Dataset shape:", df.shape)
