@@ -24,7 +24,7 @@ from deep_q_network import DQN, DQNTrainer, RISDataset
 np.random.seed(42)
 torch.manual_seed(42)
 
-def load_trained_model(model_path='dqn_model.pth', state_dim=4, n_actions=64):
+def load_trained_model(model_path='dqn_model.pth', state_dim=7, n_actions=64):
     """Load the trained DQN model with normalization statistics"""
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
@@ -360,8 +360,8 @@ def main():
     
     # Create test environment (same configuration as training)
     env = SimpleRISEnv(
-        N=12, M=4, U=1, G=3, K=4, 
-        reward_func='fairness',  
+        N=12, M=4, U=2, G=3, K=4, 
+        reward_func='multi_obj',  
         channel_variation=0.15   # Match training channel dynamics
     )
     

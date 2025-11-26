@@ -21,6 +21,11 @@ np.random.seed(42)
 torch.manual_seed(42)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+
+# Set deterministic behavior for reproducibility
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 # ---- Dataset Loader ----
 class RISDataset(Dataset):
@@ -117,24 +122,38 @@ class RISDataset(Dataset):
 
 # ---- DQN Network ----
 class DQN(nn.Module):
-    """Deep Q Network for RIS control"""
+    """Deep Q Network for RIS control with improved architecture"""
     def __init__(self, state_dim, n_actions, hidden_dim=256):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.15),
+            nn.Dropout(0.05),  # Reduced dropout for offline RL
             
             nn.Linear(hidden_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.15),
+            nn.Dropout(0.05),  # Reduced dropout
             
             nn.Linear(hidden_dim, 128),
+            nn.BatchNorm1d(128),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            # No dropout before output layer
             
             nn.Linear(128, n_actions)
         )
+        
+        # Initialize weights using Xavier initialization
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initialize network weights using Xavier uniform"""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
         return self.net(x)
@@ -143,7 +162,7 @@ class DQN(nn.Module):
 # ---- Training Functions ----
 class DQNTrainer:
     """DQN Trainer class with normalization support"""
-    def __init__(self, state_dim, n_actions, lr=5e-5, gamma=0.95, device='cpu'):
+    def __init__(self, state_dim, n_actions, lr=1e-4, gamma=0.95, device='cpu'):
         self.device = torch.device(device)
         self.gamma = gamma
         
@@ -152,10 +171,11 @@ class DQNTrainer:
         self.target_net = DQN(state_dim, n_actions).to(self.device)
         self.target_net.load_state_dict(self.q_net.state_dict())
         
-        # Initialize optimizer and loss
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=20, gamma=0.8)
-        self.loss_fn = nn.MSELoss()
+        # Initialize optimizer with higher learning rate
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr, weight_decay=1e-5)
+        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=25, gamma=0.8)
+        # Use Huber loss for robustness to outliers
+        self.loss_fn = nn.SmoothL1Loss()  # Huber loss (delta=1.0)
         
         # Normalization stats
         self.state_mean = None
@@ -257,10 +277,20 @@ class DQNTrainer:
 
 
 # ---- Main Training Function ----
-def train_dqn(dataset_path, epochs=100, batch_size=64, lr=5e-5, gamma=0.95, 
-              target_update_freq=10, device='cpu', save_path='dqn_model.pth'):
+def train_dqn(dataset_path, epochs=100, batch_size=64, lr=1e-4, gamma=0.95, 
+              target_update_freq=5, device='cpu', save_path='dqn_model.pth'):
     dataset = RISDataset(dataset_path, normalize=True)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    
+    # Set generator for reproducible DataLoader shuffling
+    generator = torch.Generator()
+    generator.manual_seed(42)
+    
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=batch_size, 
+        shuffle=True,
+        generator=generator  # Ensures reproducible shuffling
+    )
     
     trainer = DQNTrainer(
         state_dim=dataset.state_dim,
@@ -280,7 +310,7 @@ def train_dqn(dataset_path, epochs=100, batch_size=64, lr=5e-5, gamma=0.95,
     print("\nStarting DQN training...")
     loss_history = []
     best_loss = float('inf')
-    patience = 10
+    patience = 15  # Increased patience for better convergence
     patience_counter = 0
     
     for epoch in range(epochs):
@@ -343,9 +373,9 @@ if __name__ == "__main__":
             dataset_path=dataset_path,
             epochs=100,
             batch_size=64,
-            lr=5e-5,        # Reduced learning rate
-            gamma=0.95,     # Adjusted discount factor
-            target_update_freq=10,
+            lr=1e-4,        # Increased learning rate for faster convergence
+            gamma=0.95,     # Discount factor
+            target_update_freq=5,  # More frequent target updates
             device='cpu'
         )
         
