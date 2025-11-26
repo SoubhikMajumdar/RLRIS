@@ -278,10 +278,6 @@ In this system, fairness ensures both users receive reasonable performance, prev
 4. Test thoroughly
 5. Submit a pull request
 
-## 📄 License
-
-This project is part of EE297A Capstone at UC Berkeley.
-
 ## 👥 Authors
 
 - **Soubhik** - RIS 6G DQN Implementation
