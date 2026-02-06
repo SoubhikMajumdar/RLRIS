@@ -1,0 +1,27 @@
+# Core dependencies for RIS 6G DQN Project
+# ===========================================
+
+# Deep Learning Framework
+torch>=2.10.0
+torchvision>=0.25.0
+torchaudio>=2.10.0
+# Note: For CPU-only installation, use:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+# For CUDA support, use:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+
+# Numerical Computing
+numpy>=1.26.0
+
+# Data Handling
+pandas>=2.3.0
+
+# Visualization
+matplotlib>=3.10.0
+seaborn>=0.13.0
+
+# Scientific Computing
+scipy>=1.16.0
+
+# Machine Learning Utilities
+scikit-learn>=1.7.0
