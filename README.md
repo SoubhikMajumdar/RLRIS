@@ -310,4 +310,4 @@ In this system, fairness ensures both users receive reasonable performance, prev
 
 ---
 
-*Last updated: February 2026*
+*Last updated: 12 February 2026*
