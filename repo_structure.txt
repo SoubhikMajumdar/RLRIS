@@ -1,0 +1,56 @@
+Hypothetical RLRIS repo structure (multiple DQN models)
+
+RLRIS/
+|
++-- data_generation/
+|   |   data_generation.py          # Data generation scripts
+|   |
+|   +-- output/                    # Generated datasets
+|   |       ris_dataset.csv
+|   |
+|   +-- analysis/                  # Dataset validation & analysis
+|   |   dataset_check.py
+|   |   compare_reward_functions.py # Reward function comparison
+|   |   reward_function_comparison.png
+|   |   checkds_action.png
+|   |   checkds_state.png
+|   |   checkds_reward.png
+|   |   checkds_sinr.png
+|   |   checkds_transition.png
+|   |   checkds_offline_rl.png
+|   |   checkds_action_reward.png
+|
++-- dqn/
+|   |   deep_q_network.py          # DQN model + training
+|   |
+|   +-- train/                     # Training outputs
+|   |   dqn_model.pth
+|   |   training_loss.png
+|   |   (checkpoints, logs)
+|   |
+|   +-- test/                      # Test / evaluation outputs
+|   |   test_ris_dqn.py
+|   |   simple_test.py
+|   |   performance_comparison.png
+|   |   action_distribution.png
+|   |   episode_analysis.png
+|   |   exploration_analysis.png
+|
++-- dueling_dqn/
+|   |   deep_dueling_q_network.py  # Dueling DQN model + training
+|   |
+|   +-- train/
+|   |   dueling_dqn_model.pth
+|   |   training_loss.png
+|   |   (checkpoints, logs)
+|   |
+|   +-- test/
+|   |   test_ris_dueling_dqn.py
+|   |   performance_comparison.png
+|   |   action_distribution.png
+|   |   (other plots)
+|
+|
++-- README.md
++-- requirements.txt
++-- .gitignore

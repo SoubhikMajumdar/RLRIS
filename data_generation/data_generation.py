@@ -29,6 +29,29 @@ def complex_randn(shape):
     """Generate complex random numbers"""
     return (np.random.randn(*shape) + 1j*np.random.randn(*shape))/np.sqrt(2)
 
+def path_loss(distance, d0=1.0, n=2.0, PL0_dB=30, fc_GHz=3.0):
+    """
+    Free-space path loss model with configurable exponent
+    
+    PL(d) = PL(d0) + 10*n*log10(d/d0)
+    where PL0 = 20*log10(4*pi*d0*fc/c) at reference distance d0
+    
+    Args:
+        distance: Distance in meters
+        d0: Reference distance (1m)
+        n: Path loss exponent (2.0 = free space, 2.5-4.0 = urban/NLOS)
+        PL0_dB: Path loss at reference distance (dB) - typically 30-40 dB at 1m
+        fc_GHz: Carrier frequency in GHz (default 3.0 GHz for sub-6GHz)
+    
+    Returns:
+        Path loss coefficient (linear scale, < 1.0 for attenuation)
+    """
+    if distance < d0:
+        distance = d0
+    # Standard path loss formula
+    PL_dB = PL0_dB + 10 * n * np.log10(distance / d0)
+    return db2lin(-PL_dB)  # Convert to linear scale (attenuation factor)
+
 # ---- RIS Codebook ----
 class RISCodebook:
     """Discrete RIS codebook for phase control"""
@@ -159,7 +182,8 @@ def multi_objective_reward(sinr, alpha=0.7, beta=0.3):
 # ---- Environment ----
 class SimpleRISEnv:
     """Simple RIS environment for dataset generation with time-varying channels"""
-    def __init__(self, N=64, M=8, U=6, G=8, K=8, reward_func='pf', channel_variation=0.1):
+    def __init__(self, N=64, M=8, U=6, G=8, K=8, reward_func='pf', channel_variation=0.1,
+                 enable_path_loss=True, d_BR=30.0, d_RU=None, d_BU=None):
         """
         Initialize RIS environment
         
@@ -171,6 +195,10 @@ class SimpleRISEnv:
             K: Number of phase options per group
             reward_func: Reward function to use ('pf', 'sum_rate', 'min_sinr', 'fairness', 'robust', 'multi_obj')
             channel_variation: Channel variation rate (0=static, 0.3=high mobility)
+            enable_path_loss: Enable distance-based path loss (default: True)
+            d_BR: Distance from BS to RIS in meters (default: 30m)
+            d_RU: List of distances from RIS to each user in meters (default: [10, 15, ...] for U users)
+            d_BU: List of distances from BS to each user (direct path) in meters (default: [50, 60, ...] for U users)
         """
         self.N, self.M, self.U = N, M, U
         self.cb = RISCodebook(N, G, K)
@@ -178,6 +206,36 @@ class SimpleRISEnv:
         # 30 dBm = 10^(30/10) = 1000 mW = 1 W transmit power
         self.Ptx = db2lin(30)     # 30 dBm = 1 W
         self.channel_variation = channel_variation  # How much channels vary
+        
+        # Path loss configuration
+        self.enable_path_loss = enable_path_loss
+        if enable_path_loss:
+            self.d_BR = d_BR
+            # Default distances: RIS-User (LOS, shorter), BS-User (NLOS, longer, often blocked)
+            if d_RU is None:
+                self.d_RU = [10.0 + 5.0*u for u in range(U)]  # 10m, 15m, 20m, ...
+            else:
+                self.d_RU = d_RU if isinstance(d_RU, list) else [d_RU] * U
+            if d_BU is None:
+                self.d_BU = [50.0 + 10.0*u for u in range(U)]  # 50m, 60m, 70m, ...
+            else:
+                self.d_BU = d_BU if isinstance(d_BU, list) else [d_BU] * U
+            
+            # Path loss exponents: LOS for BS-RIS and RIS-User, NLOS for direct BS-User
+            self.n_BR = 2.0   # Free space (LOS)
+            self.n_RU = 2.0   # Free space (LOS)
+            self.n_BU = 3.5   # Urban NLOS (obstacles, higher attenuation)
+            self.PL0_dB = 30  # Path loss at 1m reference distance
+            
+            # Compute path loss coefficients (will be applied to channels)
+            self.beta_BR = path_loss(self.d_BR, n=self.n_BR, PL0_dB=self.PL0_dB)
+            self.beta_RU = [path_loss(d, n=self.n_RU, PL0_dB=self.PL0_dB) for d in self.d_RU]
+            self.beta_BU = [path_loss(d, n=self.n_BU, PL0_dB=self.PL0_dB) for d in self.d_BU]
+        else:
+            # No path loss: all channels have unit power
+            self.beta_BR = 1.0
+            self.beta_RU = [1.0] * U
+            self.beta_BU = [1.0] * U
         
         # Set reward function
         self.reward_func_name = reward_func
@@ -222,9 +280,16 @@ class SimpleRISEnv:
 
     def reset(self):
         """Reset environment to initial state"""
-        self.H_BR = complex_randn((self.N, self.M))
-        self.h_RU = [complex_randn((self.N,)) for _ in range(self.U)]
-        self.h_BU = [complex_randn((self.M,)) for _ in range(self.U)]
+        # Generate unit-variance channels
+        H_BR_unit = complex_randn((self.N, self.M))
+        h_RU_unit = [complex_randn((self.N,)) for _ in range(self.U)]
+        h_BU_unit = [complex_randn((self.M,)) for _ in range(self.U)]
+        
+        # Apply path loss (if enabled)
+        self.H_BR = np.sqrt(self.beta_BR) * H_BR_unit
+        self.h_RU = [np.sqrt(self.beta_RU[u]) * h_RU_unit[u] for u in range(self.U)]
+        self.h_BU = [np.sqrt(self.beta_BU[u]) * h_BU_unit[u] for u in range(self.U)]
+        
         # Start with identity RIS (no phase control)
         Phi = np.eye(self.N)
         GU = build_effective(self.H_BR, self.h_RU, self.h_BU, Phi)
@@ -238,11 +303,24 @@ class SimpleRISEnv:
         # Apply time-varying channel model (fading/mobility)
         if self.channel_variation > 0:
             # Correlated fading: old_channel * (1-alpha) + new_channel * alpha
+            # Path loss is preserved: we evolve the unit-variance component, then reapply path loss
             alpha = self.channel_variation
-            self.H_BR = np.sqrt(1 - alpha**2) * self.H_BR + alpha * complex_randn((self.N, self.M))
+            
+            # Extract unit-variance components (divide by sqrt of path loss)
+            H_BR_unit = self.H_BR / (np.sqrt(self.beta_BR) + 1e-10)
+            h_RU_unit = [self.h_RU[u] / (np.sqrt(self.beta_RU[u]) + 1e-10) for u in range(self.U)]
+            h_BU_unit = [self.h_BU[u] / (np.sqrt(self.beta_BU[u]) + 1e-10) for u in range(self.U)]
+            
+            # Evolve unit-variance channels
+            H_BR_unit = np.sqrt(1 - alpha**2) * H_BR_unit + alpha * complex_randn((self.N, self.M))
             for u in range(self.U):
-                self.h_RU[u] = np.sqrt(1 - alpha**2) * self.h_RU[u] + alpha * complex_randn((self.N,))
-                self.h_BU[u] = np.sqrt(1 - alpha**2) * self.h_BU[u] + alpha * complex_randn((self.M,))
+                h_RU_unit[u] = np.sqrt(1 - alpha**2) * h_RU_unit[u] + alpha * complex_randn((self.N,))
+                h_BU_unit[u] = np.sqrt(1 - alpha**2) * h_BU_unit[u] + alpha * complex_randn((self.M,))
+            
+            # Reapply path loss
+            self.H_BR = np.sqrt(self.beta_BR) * H_BR_unit
+            self.h_RU = [np.sqrt(self.beta_RU[u]) * h_RU_unit[u] for u in range(self.U)]
+            self.h_BU = [np.sqrt(self.beta_BU[u]) * h_BU_unit[u] for u in range(self.U)]
         
         # Compute performance with current action
         Phi = self.cb.action_to_diag(a)
@@ -307,30 +385,39 @@ def heuristic_policy(env, state, epsilon=0.2):
     
     return best_action
 
-def generate_dataset(episodes=50, steps=200, outdir="out", diverse=True):
+def _default_output_dir():
+    """Default CSV output: data_generation/output/"""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+
+
+def generate_dataset(episodes=50, steps=200, outdir=None, diverse=True):
     """
     Generate offline RL dataset
-    
+
     Args:
         episodes: Number of episodes to generate
         steps: Number of steps per episode  
-        outdir: Output directory for dataset
+        outdir: Output directory for dataset (default: data_generation/output/)
         diverse: Use diverse dataset generation strategy
         
     Returns:
         pandas.DataFrame: Generated dataset
     """
+    if outdir is None:
+        outdir = _default_output_dir()
     if diverse:
         return generate_diverse_dataset(episodes, steps, outdir)
     else:
         return generate_simple_dataset(episodes, steps, outdir)
 
-def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
+def generate_diverse_dataset(episodes=100, steps=200, outdir=None):
     """
     Generate highly diverse offline RL dataset with uniform action coverage
     
     Uses multi-objective reward (alpha=0.7, beta=0.3) to balance sum rate and fairness
     """
+    if outdir is None:
+        outdir = _default_output_dir()
     env = SimpleRISEnv(N=12, M=4, U=2, G=3, K=4, reward_func='multi_obj', channel_variation=0.15)
     rows = []
     n_actions = env.cb.size()
@@ -371,12 +458,14 @@ def generate_diverse_dataset(episodes=100, steps=200, outdir="out"):
     print(f"Saved dataset: {df.shape}")
     return df
 
-def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
+def generate_simple_dataset(episodes=25, steps=200, outdir=None):
     """
     Legacy simple dataset generation with heuristic
     
     Uses multi-objective reward (alpha=0.7, beta=0.3) to balance sum rate and fairness
     """
+    if outdir is None:
+        outdir = _default_output_dir()
     env = SimpleRISEnv(N=12, M=4, U=2, G=3, K=4, reward_func='multi_obj', channel_variation=0.15)
     rows = []
     
@@ -403,11 +492,12 @@ def generate_simple_dataset(episodes=25, steps=200, outdir="out"):
     return df
 
 if __name__ == "__main__":
-    # Example usage
+    # Writes dataset to data_generation/output/ris_dataset.csv (default)
     print("Generating diverse RIS 6G dataset...")
     print("Configuration: 2 users, 4 BS antennas, 12 RIS elements, 64 actions (G=3, K=4), 20,000 samples")
     print("Time-varying channels enabled (variation=0.15)")
-    df = generate_dataset(episodes=100, steps=200, outdir="out", diverse=True)
+    print("Path loss enabled: BS-RIS (30m, n=2.0), RIS-User (10-15m, n=2.0), BS-User (50-60m, n=3.5)")
+    df = generate_dataset(episodes=100, steps=200, diverse=True)
     print("Dataset shape:", df.shape)
     print("First few rows:")
     print(df.head())

@@ -4,25 +4,36 @@ Simple RIS 6G DQN Test
 """
 
 import os
+import sys
+from pathlib import Path
+
+_root = Path(__file__).resolve().parents[2]
+_dqn_dir = _root / "dqn"
+sys.path.insert(0, str(_root))
+sys.path.insert(0, str(_dqn_dir))
+
 import numpy as np
 import torch
-from data_generation import SimpleRISEnv
+from data_generation.data_generation import SimpleRISEnv
 from deep_q_network import DQN, DQNTrainer
+
+_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+_DEFAULT_MODEL = os.path.normpath(os.path.join(_TEST_DIR, "..", "train", "dqn_model.pth"))
 
 def test_dqn():
     """Simple DQN test without Unicode characters"""
-    
+
     print("RIS 6G DQN Test")
     print("=" * 40)
-    
+
     # Check if model exists
-    if not os.path.exists('dqn_model.pth'):
+    if not os.path.exists(_DEFAULT_MODEL):
         print("No trained model found!")
         return
-    
+
     # Load model
     trainer = DQNTrainer(state_dim=6, n_actions=256, device='cpu')
-    trainer.load_model('dqn_model.pth')
+    trainer.load_model(_DEFAULT_MODEL)
     print("Loaded trained model")
     
     # Create test environment

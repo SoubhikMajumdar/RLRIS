@@ -12,20 +12,34 @@ MODIFICATIONS:
 """
 
 import os
+import sys
+from pathlib import Path
+
+# Project root and dqn folder on path so imports work from repo root or dqn/test/
+_root = Path(__file__).resolve().parents[2]
+_dqn_dir = _root / "dqn"
+sys.path.insert(0, str(_root))
+sys.path.insert(0, str(_dqn_dir))
+
 import json
 import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt
-from data_generation import SimpleRISEnv, generate_dataset
+from data_generation.data_generation import SimpleRISEnv, generate_dataset
 from deep_q_network import DQN, DQNTrainer, RISDataset
+
+_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Set random seeds for reproducibility
 np.random.seed(42)
 torch.manual_seed(42)
 
-def load_trained_model(model_path='dqn_model.pth', state_dim=7, n_actions=64):
+def load_trained_model(model_path=None, state_dim=7, n_actions=64):
     """Load the trained DQN model with normalization statistics"""
+    if model_path is None:
+        model_path = os.path.join(_TEST_DIR, "..", "train", "dqn_model.pth")
+        model_path = os.path.normpath(model_path)
     if not os.path.exists(model_path):
         print(f"Model file {model_path} not found!")
         return None
@@ -141,7 +155,7 @@ def plot_performance_comparison(dqn_rewards, dqn_sinrs, random_rewards, random_s
     ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('performance_comparison.png', dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(_TEST_DIR, 'performance_comparison.png'), dpi=300, bbox_inches='tight')
     plt.close()  # Close instead of show for non-interactive environments
     print("Performance comparison plot saved as 'performance_comparison.png'")
 
@@ -174,7 +188,7 @@ def analyze_action_distribution(action_distribution, n_actions=64):
     plt.title('DQN Action Distribution')
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig('action_distribution.png', dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(_TEST_DIR, 'action_distribution.png'), dpi=300, bbox_inches='tight')
     plt.close()
     print("Action distribution plot saved as 'action_distribution.png'")
 
@@ -260,7 +274,7 @@ def test_single_episode_detailed(trainer, env):
     ax4.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig('episode_analysis.png', dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(_TEST_DIR, 'episode_analysis.png'), dpi=300, bbox_inches='tight')
     plt.close()
     print("Episode analysis plot saved as 'episode_analysis.png'")
 
@@ -333,7 +347,7 @@ def plot_exploration_analysis(trainer, env):
     plt.colorbar(im, ax=ax4, label='Q-Value')
     
     plt.tight_layout()
-    plt.savefig('exploration_analysis.png', dpi=300, bbox_inches='tight')
+    plt.savefig(os.path.join(_TEST_DIR, 'exploration_analysis.png'), dpi=300, bbox_inches='tight')
     plt.close()
     
     # Print statistics
@@ -349,7 +363,8 @@ def main():
     print("=" * 60)
     
     # Check if model exists
-    if not os.path.exists('dqn_model.pth'):
+    _default_model = os.path.normpath(os.path.join(_TEST_DIR, "..", "train", "dqn_model.pth"))
+    if not os.path.exists(_default_model):
         print("No trained model found! Please run deep_q_network.py first.")
         return
     

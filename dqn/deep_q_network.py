@@ -340,12 +340,13 @@ def train_dqn(dataset_path, epochs=100, batch_size=64, lr=1e-4, gamma=0.95,
     plt.grid(True, alpha=0.3)
     plt.legend()
     plt.tight_layout()
-    plt.savefig('training_loss.png', dpi=300, bbox_inches='tight')
+    loss_plot_path = os.path.join(os.path.dirname(save_path), "training_loss.png")
+    plt.savefig(loss_plot_path, dpi=300, bbox_inches='tight')
     plt.close()
-    
+
     trainer.save_model(save_path)
     print(f"Model saved to {save_path}")
-    print(f"Loss plot saved to training_loss.png")
+    print(f"Loss plot saved to {loss_plot_path}")
     
     return trainer
 
@@ -363,11 +364,16 @@ def evaluate_model(trainer, dataset, n_samples=5):
 
 
 if __name__ == "__main__":
-    dataset_path = "out/ris_dataset.csv"
-    
+    _dqn_dir = os.path.dirname(os.path.abspath(__file__))
+    _train_dir = os.path.join(_dqn_dir, "train")
+    os.makedirs(_train_dir, exist_ok=True)
+    dataset_path = os.path.join(_dqn_dir, "..", "data_generation", "output", "ris_dataset.csv")
+    dataset_path = os.path.normpath(dataset_path)
+    save_path = os.path.join(_train_dir, "dqn_model.pth")
+
     if not os.path.exists(dataset_path):
         print(f"Dataset not found at {dataset_path}")
-        print("Please run data_generation.py first to generate the dataset")
+        print("Please run data_generation/data_generation.py first to generate the dataset")
     else:
         trainer = train_dqn(
             dataset_path=dataset_path,
@@ -376,8 +382,9 @@ if __name__ == "__main__":
             lr=1e-4,        # Increased learning rate for faster convergence
             gamma=0.95,     # Discount factor
             target_update_freq=5,  # More frequent target updates
-            device='cpu'
+            device='cpu',
+            save_path=save_path
         )
-        
+
         dataset = RISDataset(dataset_path)
         evaluate_model(trainer, dataset, n_samples=5)

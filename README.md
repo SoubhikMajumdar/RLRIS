@@ -64,59 +64,76 @@ This project implements a Deep Q-Network (DQN) for optimizing Reconfigurable Int
 pip install pandas numpy torch matplotlib
 ```
 
+Run all commands from the **project root**.
+
 ### 1. Generate Dataset
 ```bash
-python data_generation.py
+python data_generation/data_generation.py
 ```
 - Generates 20,000 samples with multi-objective reward function
 - Uses epsilon-greedy physics-based heuristic policy (ε=0.3)
-- Creates `out/ris_dataset.csv` with 2-user system data
+- Writes `data_generation/output/ris_dataset.csv` (2-user system)
 
 ### 2. Validate Dataset (Optional)
 ```bash
-python dataset_check.py
+python data_generation/analysis/dataset_check.py
 ```
 - Validates dataset quality for offline RL
-- Generates validation plots: `checkds_*.png`
+- Saves validation plots in `data_generation/analysis/`: `checkds_*.png`
 - Checks action coverage, state distribution, reward characteristics
+
+### 2b. Compare Reward Functions (Optional)
+```bash
+python data_generation/analysis/compare_reward_functions.py
+```
+- Compares reward functions (pf, sum_rate, fairness, multi_obj, etc.)
+- Saves `data_generation/analysis/reward_function_comparison.png`
 
 ### 3. Train DQN
 ```bash
-python deep_q_network.py
+python dqn/deep_q_network.py
 ```
 - Trains improved DQN with BatchNorm, Huber loss, Xavier init
 - Applies state and reward normalization (Z-score)
-- Saves model as `dqn_model.pth` with normalization statistics
-- Generates `training_loss.png`
+- Saves model as `dqn/train/dqn_model.pth` with normalization statistics
+- Saves `dqn/train/training_loss.png`
 
 ### 4. Test Performance
 ```bash
-python test_ris_dqn.py
+python dqn/test/test_ris_dqn.py
 ```
 - Compares DQN vs random policy (200 steps per episode)
-- Generates performance plots and analysis
+- Saves performance plots in `dqn/test/`
 - Evaluates action distribution and Q-value spread
 
 ## 📁 File Structure
 
+See `repo_structure.txt` for the full layout. Summary:
+
 ```
 RLRIS/
-├── data_generation.py          # Dataset generation and RIS environment
-├── deep_q_network.py           # Improved DQN training implementation
-├── test_ris_dqn.py            # Comprehensive testing suite
-├── dataset_check.py            # Dataset validation and quality checks
-├── compare_reward_functions.py # Reward function comparison
-├── simple_test.py             # Simple testing script
-├── RIS6gDatasetGen.ipynb      # Original Jupyter notebook
-├── out/
-│   └── ris_dataset.csv        # Generated dataset (20,000 samples)
-├── dqn_model.pth              # Trained DQN model with normalization stats
-├── training_loss.png          # Training loss curve
-├── performance_comparison.png  # DQN vs Random comparison
-├── action_distribution.png    # Action usage analysis
-├── episode_analysis.png       # Detailed episode trajectory
-├── exploration_analysis.png   # Action selection and Q-value analysis
-└── checkds_*.png              # Dataset validation plots (7 plots)
+├── data_generation/
+│   ├── data_generation.py       # Dataset generation and RIS environment
+│   ├── output/
+│   │   └── ris_dataset.csv      # Generated dataset (20,000 samples)
+│   └── analysis/
+│       ├── dataset_check.py     # Dataset validation
+│       ├── compare_reward_functions.py  # Reward function comparison
+│       ├── reward_function_comparison.png
+│       └── checkds_*.png        # Validation plots (7 plots)
+├── dqn/
+│   ├── deep_q_network.py       # DQN model and training
+│   ├── train/
+│   │   ├── dqn_model.pth
+│   │   └── training_loss.png
+│   └── test/
+│       ├── test_ris_dqn.py
+│       ├── simple_test.py
+│       └── *.png                # Performance plots
+├── README.md
+├── requirements.txt
+├── repo_structure.txt
+└── RIS6gDatasetGen.ipynb
 ```
 
 ## 🔧 Configuration
@@ -190,7 +207,7 @@ Where:
 ## 🛠️ Customization
 
 ### Changing System Parameters
-Edit `data_generation.py`:
+Edit `data_generation/data_generation.py`:
 ```python
 env = SimpleRISEnv(N=16, M=4, U=3, G=4, K=4)  # Multi-user system
 ```
@@ -201,7 +218,7 @@ env = SimpleRISEnv(reward_func='min_sinr')  # Min-SINR reward
 ```
 
 ### Training Parameters
-Edit `deep_q_network.py`:
+Edit `dqn/deep_q_network.py`:
 ```python
 trainer = train_dqn(
     epochs=100,           # More training

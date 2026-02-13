@@ -6,10 +6,17 @@ This script compares different reward functions to help choose the best one
 for your RIS 6G system.
 """
 
+import sys
+from pathlib import Path
+# Project root (script is in data_generation/analysis/) so "from data_generation.data_generation import" works
+_proj = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_proj))
+
+import os
 import numpy as np
 import matplotlib.pyplot as plt
-from data_generation import (
-    SimpleRISEnv, pf_reward, sum_rate_reward, min_sinr_reward, 
+from data_generation.data_generation import (
+    SimpleRISEnv, pf_reward, sum_rate_reward, min_sinr_reward,
     fairness_reward, robust_reward, multi_objective_reward
 )
 
@@ -27,11 +34,11 @@ def test_reward_functions(n_episodes=10, n_steps=50):
     
     results = {}
     
-    print("🧪 Testing Different Reward Functions...")
+    print("Testing Different Reward Functions...")
     print("=" * 60)
     
     for name, func_key in reward_functions.items():
-        print(f"\n📊 Testing {name} reward function...")
+        print(f"\nTesting {name} reward function...")
         
         # Create environment with specific reward function
         env = SimpleRISEnv(N=16, M=4, U=3, G=4, K=4, reward_func=func_key)
@@ -146,15 +153,17 @@ def plot_reward_comparison(results):
                 f'{value:.2f}', ha='center', va='bottom', fontweight='bold')
     
     plt.tight_layout()
-    plt.savefig('reward_function_comparison.png', dpi=300, bbox_inches='tight')
+    _out_dir = os.path.dirname(os.path.abspath(__file__))  # data_generation/analysis/
+    _plot_path = os.path.join(_out_dir, 'reward_function_comparison.png')
+    plt.savefig(_plot_path, dpi=300, bbox_inches='tight')
     plt.close()  # Close plot to avoid display issues
-    print("📊 Reward function comparison plot saved as 'reward_function_comparison.png'")
+    print("[OK] Reward function comparison plot saved to data_generation/analysis/reward_function_comparison.png")
 
 def analyze_reward_characteristics(results):
     """Analyze the characteristics of each reward function"""
     
     print("\n" + "="*60)
-    print("📈 REWARD FUNCTION ANALYSIS")
+    print("REWARD FUNCTION ANALYSIS")
     print("="*60)
     
     # Find best performers
@@ -163,20 +172,20 @@ def analyze_reward_characteristics(results):
     best_min_sinr = max(results.keys(), key=lambda x: results[x]['avg_min_sinr'])
     best_max_sinr = max(results.keys(), key=lambda x: results[x]['avg_max_sinr'])
     
-    print(f"\n🏆 BEST PERFORMERS:")
+    print(f"\nBEST PERFORMERS:")
     print(f"  Highest Average Reward: {best_reward}")
     print(f"  Best Mean SINR: {best_mean_sinr}")
     print(f"  Best Min SINR (Fairness): {best_min_sinr}")
     print(f"  Best Max SINR: {best_max_sinr}")
     
     # Calculate fairness metrics
-    print(f"\n⚖️ FAIRNESS ANALYSIS:")
+    print(f"\nFAIRNESS ANALYSIS:")
     for name, data in results.items():
         fairness_ratio = data['avg_min_sinr'] / data['avg_max_sinr']
         print(f"  {name}: Min/Max ratio = {fairness_ratio:.3f} (higher = more fair)")
     
     # Recommendations
-    print(f"\n💡 RECOMMENDATIONS:")
+    print(f"\nRECOMMENDATIONS:")
     print(f"  • For MAXIMUM THROUGHPUT: Use '{best_reward}' reward function")
     print(f"  • For USER FAIRNESS: Use '{best_min_sinr}' reward function")
     print(f"  • For BALANCED PERFORMANCE: Use 'Multi-Objective' reward function")
@@ -184,7 +193,7 @@ def analyze_reward_characteristics(results):
 
 def main():
     """Main comparison function"""
-    print("🚀 RIS 6G Reward Function Comparison")
+    print("RIS 6G Reward Function Comparison")
     print("=" * 60)
     
     # Test all reward functions
@@ -196,8 +205,8 @@ def main():
     # Analyze characteristics
     analyze_reward_characteristics(results)
     
-    print(f"\n✅ Reward function comparison completed!")
-    print(f"📁 Generated file: reward_function_comparison.png")
+    print(f"\n[OK] Reward function comparison completed!")
+    print(f"Generated file: data_generation/analysis/reward_function_comparison.png")
 
 if __name__ == "__main__":
     main()

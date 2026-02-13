@@ -26,17 +26,22 @@ import seaborn as sns
 # Set random seeds
 np.random.seed(42)
 
+_ANALYSIS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def _default_csv_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'output', 'ris_dataset.csv')
+
 class DatasetValidator:
     """Comprehensive dataset validation"""
-    
-    def __init__(self, csv_path='out/ris_dataset.csv'):
+
+    def __init__(self, csv_path=None):
         """
         Initialize validator
         
         Args:
             csv_path: Path to dataset CSV file
         """
-        self.csv_path = csv_path
+        self.csv_path = csv_path if csv_path is not None else _default_csv_path()
         self.df = None
         self.states = None
         self.next_states = None
@@ -128,7 +133,7 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('checkds_action.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_action.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_action.png")
         
@@ -188,7 +193,7 @@ class DatasetValidator:
             axes[i].axis('off')
         
         plt.tight_layout()
-        plt.savefig('checkds_state.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_state.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_state.png")
         
@@ -253,7 +258,7 @@ class DatasetValidator:
         ax4.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('checkds_reward.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_reward.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_reward.png")
     
@@ -332,7 +337,7 @@ class DatasetValidator:
         ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('checkds_transition.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_transition.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_transition.png")
     
@@ -385,7 +390,7 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3, axis='y')
         
         plt.tight_layout()
-        plt.savefig('checkds_action_reward.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_action_reward.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_action_reward.png")
     
@@ -452,7 +457,7 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('checkds_sinr.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_sinr.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_sinr.png")
     
@@ -537,7 +542,7 @@ class DatasetValidator:
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        plt.savefig('checkds_offline_rl.png', dpi=300, bbox_inches='tight')
+        plt.savefig(os.path.join(_ANALYSIS_DIR, 'checkds_offline_rl.png'), dpi=300, bbox_inches='tight')
         plt.close()
         print("\n[OK] Saved: checkds_offline_rl.png")
     
@@ -595,8 +600,8 @@ class DatasetValidator:
 def main():
     """Main validation function"""
     
-    # Check if dataset exists
-    dataset_path = 'out/ris_dataset.csv'
+    # Check if dataset exists (default: data_generation/output/ris_dataset.csv)
+    dataset_path = _default_csv_path()
     if not os.path.exists(dataset_path):
         print(f"[ERROR] Dataset not found at {dataset_path}")
         print("Please run data_generation.py first to generate the dataset")
